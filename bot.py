@@ -461,9 +461,9 @@ TICKET_KATEGORIEN = {
     "bewerbung": {"label": "📝 Bewerbung", "emoji": "📝", "farbe": discord.Color.green(),
                   "beschreibung": "Bewirb dich hier für eine Rolle auf dem WindSMP Server!",
                   "hinweis": "Bitte beschreibe warum du Teil des Teams werden möchtest."},
-    "allgemein": {"label": "💬 Allgemein", "emoji": "💬", "farbe": discord.Color.blue(),
-                  "beschreibung": "Allgemeine Fragen und Anliegen.",
-                  "hinweis": "Beschreibe dein Anliegen so genau wie möglich."},
+    "mod_bewerbung": {"label": "🛡️ Mod Bewerbung", "emoji": "🛡️", "farbe": discord.Color.blurple(),
+                  "beschreibung": "Bewirb dich als Moderator auf Twitch oder Discord!",
+                  "hinweis": "Bitte beantworte folgendes:\n• Für welche Plattform möchtest du Mod werden? (Twitch / Discord)\n• Wie alt bist du?\n• Wie aktiv bist du auf dem Server?\n• Warum möchtest du Moderator werden?\n• Hast du Erfahrung als Moderator?"},
     "bug":       {"label": "🐛 Bug melden", "emoji": "🐛", "farbe": discord.Color.red(),
                   "beschreibung": "Du hast einen Bug oder Fehler gefunden?",
                   "hinweis": "Beschreibe den Bug genau: Was ist passiert? Wie kann man ihn reproduzieren?"},
@@ -572,7 +572,7 @@ class TicketKategorieSelect(discord.ui.Select):
     def __init__(self):
         options = [
             discord.SelectOption(label="📝 Bewerbung", value="bewerbung", description="Bewirb dich für eine Rolle auf WindSMP", emoji="📝"),
-            discord.SelectOption(label="💬 Allgemein", value="allgemein", description="Allgemeine Fragen und Anliegen", emoji="💬"),
+            discord.SelectOption(label="🛡️ Mod Bewerbung", value="mod_bewerbung", description="Bewirb dich als Mod auf Twitch oder Discord", emoji="🛡️"),
             discord.SelectOption(label="🐛 Bug melden", value="bug", description="Einen Fehler oder Bug melden", emoji="🐛"),
         ]
         super().__init__(
@@ -604,9 +604,9 @@ async def ticketpanel(ctx):
         title="🎫 Support-Tickets",
         description=(
             "Brauchst du Hilfe oder möchtest dich bewerben?\n\n"
-            "📝 **Bewerbung** — Bewirb dich für eine Rolle\n"
-            "💬 **Allgemein** — Fragen & Anliegen\n"
-            "🐛 **Bug melden** — Fehler & Bugs\n\n"
+            "📝 **Bewerbung** — Bewirb dich für eine Rolle auf WindSMP\n"
+            "🛡️ **Mod Bewerbung** — Werde Mod auf Twitch oder Discord\n"
+            "🐛 **Bug melden** — Fehler & Bugs melden\n\n"
             "Wähle eine Kategorie aus dem Menü unten!"
         ),
         color=discord.Color.blue()
