@@ -15,6 +15,7 @@ TWITCH_CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET", "")
 
 CONFIG_FILE = "artifacts/discord-bot/config.json"
+GIVEAWAY_FILE = "artifacts/discord-bot/giveaways.json"
 
 def load_config() -> dict:
     try:
@@ -27,6 +28,40 @@ def save_config(data: dict):
     with open(CONFIG_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
+def save_giveaways():
+    data = {}
+    for mid, gw in giveaways.items():
+        data[str(mid)] = {
+            "channel_id": gw["channel_id"],
+            "end_time": gw["end_time"].isoformat(),
+            "prize": gw["prize"],
+            "description": gw["description"],
+            "winners": gw["winners"],
+            "participants": {str(k): v for k, v in gw["participants"].items()},
+            "ended": gw["ended"],
+        }
+    with open(GIVEAWAY_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def load_giveaways() -> dict:
+    try:
+        with open(GIVEAWAY_FILE, "r") as f:
+            data = json.load(f)
+        result = {}
+        for mid_str, gw in data.items():
+            result[int(mid_str)] = {
+                "channel_id": gw["channel_id"],
+                "end_time": datetime.fromisoformat(gw["end_time"]),
+                "prize": gw["prize"],
+                "description": gw["description"],
+                "winners": gw["winners"],
+                "participants": {int(k): v for k, v in gw["participants"].items()},
+                "ended": gw["ended"],
+            }
+        return result
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return {}
+
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
@@ -36,7 +71,8 @@ intents.reactions = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Laufende Giveaways: {message_id: {channel_id, end_time, prize, description, winners, participants, ended}}
-giveaways = {}
+# participants: {user_id (int): ign (str)}
+giveaways = load_giveaways()
 
 GIVEAWAY_EMOJI = "🎉"
 
@@ -97,13 +133,15 @@ async def end_giveaway(message_id: int):
         del giveaways[message_id]
         return
 
-    participants = list(data["participants"].keys())
+    participant_ids = list(data["participants"].keys())
     winner_count = data["winners"]
-    winners = random.sample(participants, min(winner_count, len(participants))) if participants else []
+    winner_ids = random.sample(participant_ids, min(winner_count, len(participant_ids))) if participant_ids else []
+    winners = [channel.guild.get_member(uid) for uid in winner_ids]
+    winners = [w for w in winners if w]
 
     embed = giveaway_embed(
         data["prize"], data["description"], data["end_time"],
-        winner_count, len(participants), ended=True, winners=winners
+        winner_count, len(participant_ids), ended=True, winners=winners
     )
 
     # Panel ohne Button nach Ende
@@ -111,7 +149,7 @@ async def end_giveaway(message_id: int):
 
     if winners:
         winner_lines = ", ".join(
-            f"{w.mention} (**{data['participants'][w]}**)" for w in winners
+            f"{w.mention} (**{data['participants'][w.id]}**)" for w in winners
         )
         await channel.send(
             f"🎉 Glückwunsch {winner_lines}! Du hast **{data['prize']}** gewonnen!",
@@ -121,6 +159,7 @@ async def end_giveaway(message_id: int):
         await channel.send("❌ Niemand hat am Giveaway teilgenommen. Kein Gewinner.", reference=message)
 
     giveaways[message_id]["ended"] = True
+    save_giveaways()
 
 
 # ─── Giveaway Timer ─────────────────────────────────────────────────────────
@@ -160,7 +199,8 @@ class IGNModal(discord.ui.Modal, title="🎮 Minecraft IGN eintragen"):
 
         user = interaction.user
         ign_value = self.ign.value.strip()
-        data["participants"][user] = ign_value
+        data["participants"][user.id] = ign_value
+        save_giveaways()
 
         embed = giveaway_embed(
             data["prize"], data["description"], data["end_time"],
@@ -195,14 +235,15 @@ class GiveawayView(discord.ui.View):
             return
 
         user = interaction.user
-        if user in data["participants"]:
+        if user.id in data["participants"]:
             # Bereits drin → austreten
-            del data["participants"][user]
+            del data["participants"][user.id]
             embed = giveaway_embed(
                 data["prize"], data["description"], data["end_time"],
                 data["winners"], len(data["participants"])
             )
             await interaction.message.edit(embed=embed)
+            save_giveaways()
             await interaction.response.send_message(
                 "↩️ Du hast das Giveaway **verlassen**.", ephemeral=True
             )
@@ -272,6 +313,7 @@ class GiveawayModal(discord.ui.Modal, title="🎉 Giveaway erstellen"):
             "participants": {},
             "ended": False,
         }
+        save_giveaways()
 
         await asyncio.sleep(seconds)
         await end_giveaway(message.id)
@@ -326,10 +368,12 @@ async def giveaway_reroll(interaction: discord.Interaction, nachricht_id: str):
         await interaction.response.send_message("❌ Keine Teilnehmer für einen Reroll.", ephemeral=True)
         return
 
-    winner = random.choice(list(participants.keys()))
-    winner_ign = participants[winner]
+    winner_id = random.choice(list(participants.keys()))
+    winner_ign = participants[winner_id]
     channel = bot.get_channel(data["channel_id"])
-    msg_text = f"🎉 Neuer Gewinner: {winner.mention} (**{winner_ign}**) — Glückwunsch zum **{data['prize']}**!"
+    winner = channel.guild.get_member(winner_id) if channel else None
+    winner_mention = winner.mention if winner else f"<@{winner_id}>"
+    msg_text = f"🎉 Neuer Gewinner: {winner_mention} (**{winner_ign}**) — Glückwunsch zum **{data['prize']}**!"
     try:
         message = await channel.fetch_message(mid)
         await interaction.response.send_message(msg_text, reference=message)
@@ -386,7 +430,7 @@ async def giveaway_participants(interaction: discord.Interaction, nachricht_id: 
         return
 
     # Aufteilen falls > 20 Teilnehmer (Embed-Limit)
-    lines = [f"`{i+1}.` {u.mention} — IGN: **{ign}**" for i, (u, ign) in enumerate(participants)]
+    lines = [f"`{i+1}.` <@{uid}> — IGN: **{ign}**" for i, (uid, ign) in enumerate(participants)]
     chunks = [lines[i:i+20] for i in range(0, len(lines), 20)]
 
     embed = discord.Embed(
@@ -425,13 +469,14 @@ async def giveaway_remove(interaction: discord.Interaction, nachricht_id: str, u
         await interaction.response.send_message("❌ Das Giveaway ist bereits beendet.", ephemeral=True)
         return
 
-    if user not in data["participants"]:
+    if user.id not in data["participants"]:
         await interaction.response.send_message(
             f"❌ {user.mention} nimmt gar nicht am Giveaway teil.", ephemeral=True
         )
         return
 
-    del data["participants"][user]
+    del data["participants"][user.id]
+    save_giveaways()
 
     # Embed im Panel aktualisieren
     channel = bot.get_channel(data["channel_id"])
@@ -1297,6 +1342,20 @@ async def on_ready():
         print(f"Slash Commands synchronisiert: {len(synced)} Commands")
     except Exception as e:
         print(f"Fehler beim Synchronisieren: {e}")
+
+    # Aktive Giveaways nach Neustart wiederherstellen
+    now = datetime.utcnow()
+    restored = 0
+    for mid, data in list(giveaways.items()):
+        if not data.get("ended"):
+            if data["end_time"] <= now:
+                # Bereits abgelaufen während Bot offline war → sofort beenden
+                await end_giveaway(mid)
+            else:
+                restored += 1
+    if restored:
+        print(f"{restored} aktive Giveaway(s) wiederhergestellt.")
+
     giveaway_check.start()
     twitch_check.start()
     print(f"{bot.user} ist online!")
