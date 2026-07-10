@@ -4,6 +4,7 @@ from discord import app_commands
 import random
 import os
 import asyncio
+import io
 from datetime import datetime, timedelta
 import re
 from keep_alive import keep_alive
@@ -28,7 +29,10 @@ def save_config(data: dict):
     with open(CONFIG_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-def save_giveaways():
+STORAGE_CHANNEL_ID = int(os.environ["GIVEAWAY_STORAGE_CHANNEL_ID"]) if os.environ.get("GIVEAWAY_STORAGE_CHANNEL_ID") else None
+STORAGE_MARKER = "GIVEAWAY_DATA_V1"
+
+def _giveaways_to_dict() -> dict:
     data = {}
     for mid, gw in giveaways.items():
         data[str(mid)] = {
@@ -40,27 +44,81 @@ def save_giveaways():
             "participants": {str(k): v for k, v in gw["participants"].items()},
             "ended": gw["ended"],
         }
-    with open(GIVEAWAY_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    return data
 
-def load_giveaways() -> dict:
+def _dict_to_giveaways(data: dict) -> dict:
+    result = {}
+    for mid_str, gw in data.items():
+        result[int(mid_str)] = {
+            "channel_id": gw["channel_id"],
+            "end_time": datetime.fromisoformat(gw["end_time"]),
+            "prize": gw["prize"],
+            "description": gw["description"],
+            "winners": gw["winners"],
+            "participants": {int(k): v for k, v in gw["participants"].items()},
+            "ended": gw["ended"],
+        }
+    return result
+
+def save_giveaways_file():
     try:
-        with open(GIVEAWAY_FILE, "r") as f:
-            data = json.load(f)
-        result = {}
-        for mid_str, gw in data.items():
-            result[int(mid_str)] = {
-                "channel_id": gw["channel_id"],
-                "end_time": datetime.fromisoformat(gw["end_time"]),
-                "prize": gw["prize"],
-                "description": gw["description"],
-                "winners": gw["winners"],
-                "participants": {int(k): v for k, v in gw["participants"].items()},
-                "ended": gw["ended"],
-            }
-        return result
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, "giveaways.json")
+        with open(path, "w") as f:
+            json.dump(_giveaways_to_dict(), f, indent=2)
+    except Exception:
+        pass
+
+def load_giveaways_file() -> dict:
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, "giveaways.json")
+        with open(path, "r") as f:
+            return _dict_to_giveaways(json.load(f))
+    except Exception:
         return {}
+
+def _get_storage_channel_id() -> int | None:
+    if STORAGE_CHANNEL_ID:
+        return STORAGE_CHANNEL_ID
+    cfg = load_config()
+    cid = cfg.get("storage_channel_id")
+    return int(cid) if cid else None
+
+async def save_giveaways():
+    save_giveaways_file()
+    cid = _get_storage_channel_id()
+    if not cid:
+        return
+    channel = bot.get_channel(cid)
+    if not channel:
+        return
+    json_bytes = json.dumps(_giveaways_to_dict(), indent=2).encode("utf-8")
+    file = discord.File(io.BytesIO(json_bytes), filename="giveaways.json")
+    async for msg in channel.history(limit=20):
+        if msg.author == bot.user and msg.content.startswith(STORAGE_MARKER):
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            break
+    await channel.send(STORAGE_MARKER, file=file)
+
+async def load_giveaways_discord() -> dict:
+    cid = _get_storage_channel_id()
+    if not cid:
+        return {}
+    channel = bot.get_channel(cid)
+    if not channel:
+        return {}
+    async for msg in channel.history(limit=20):
+        if msg.author == bot.user and msg.content.startswith(STORAGE_MARKER) and msg.attachments:
+            try:
+                data_bytes = await msg.attachments[0].read()
+                return _dict_to_giveaways(json.loads(data_bytes))
+            except Exception:
+                return {}
+    return {}
 
 intents = discord.Intents.default()
 intents.guilds = True
@@ -72,7 +130,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Laufende Giveaways: {message_id: {channel_id, end_time, prize, description, winners, participants, ended}}
 # participants: {user_id (int): ign (str)}
-giveaways = load_giveaways()
+giveaways = load_giveaways_file()
 
 GIVEAWAY_EMOJI = "🎉"
 
@@ -159,7 +217,7 @@ async def end_giveaway(message_id: int):
         await channel.send("❌ Niemand hat am Giveaway teilgenommen. Kein Gewinner.", reference=message)
 
     giveaways[message_id]["ended"] = True
-    save_giveaways()
+    await save_giveaways()
 
 
 # ─── Giveaway Timer ─────────────────────────────────────────────────────────
@@ -200,7 +258,7 @@ class IGNModal(discord.ui.Modal, title="🎮 Minecraft IGN eintragen"):
         user = interaction.user
         ign_value = self.ign.value.strip()
         data["participants"][user.id] = ign_value
-        save_giveaways()
+        await save_giveaways()
 
         embed = giveaway_embed(
             data["prize"], data["description"], data["end_time"],
@@ -243,7 +301,7 @@ class GiveawayView(discord.ui.View):
                 data["winners"], len(data["participants"])
             )
             await interaction.message.edit(embed=embed)
-            save_giveaways()
+            await save_giveaways()
             await interaction.response.send_message(
                 "↩️ Du hast das Giveaway **verlassen**.", ephemeral=True
             )
@@ -313,7 +371,7 @@ class GiveawayModal(discord.ui.Modal, title="🎉 Giveaway erstellen"):
             "participants": {},
             "ended": False,
         }
-        save_giveaways()
+        await save_giveaways()
 
         await asyncio.sleep(seconds)
         await end_giveaway(message.id)
@@ -476,7 +534,7 @@ async def giveaway_remove(interaction: discord.Interaction, nachricht_id: str, u
         return
 
     del data["participants"][user.id]
-    save_giveaways()
+    await save_giveaways()
 
     # Embed im Panel aktualisieren
     channel = bot.get_channel(data["channel_id"])
@@ -1331,8 +1389,30 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 
 # ─── Events ─────────────────────────────────────────────────────────────────
 
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setupstorage(ctx):
+    """Richtet diesen Kanal als Giveaway-Speicher ein (für Railway-Persistenz)."""
+    try:
+        await ctx.message.delete()
+    except discord.Forbidden:
+        pass
+    cfg = load_config()
+    cfg["storage_channel_id"] = ctx.channel.id
+    save_config(cfg)
+    # Speichere aktuelle Giveaways sofort
+    await save_giveaways()
+    await ctx.send(
+        f"✅ Dieser Kanal wird jetzt als **Giveaway-Speicher** verwendet.\n"
+        f"Giveaways überleben jetzt jeden Bot-Neustart! 🎉\n"
+        f"*(Diesen Kanal bitte nicht löschen oder bereinigen)*",
+        delete_after=30
+    )
+
+
 @bot.event
 async def on_ready():
+    global giveaways
     bot.add_view(GiveawayView())
     bot.add_view(TicketPanelView())
     bot.add_view(TicketCloseView())
@@ -1343,13 +1423,18 @@ async def on_ready():
     except Exception as e:
         print(f"Fehler beim Synchronisieren: {e}")
 
-    # Aktive Giveaways nach Neustart wiederherstellen
+    # Giveaways aus Discord laden (überschreibt lokale Datei falls vorhanden)
+    discord_data = await load_giveaways_discord()
+    if discord_data:
+        giveaways.update(discord_data)
+        print(f"Giveaways aus Discord-Storage geladen: {len(discord_data)} Einträge")
+
+    # Abgelaufene Giveaways sofort beenden, aktive zählen
     now = datetime.utcnow()
     restored = 0
     for mid, data in list(giveaways.items()):
         if not data.get("ended"):
             if data["end_time"] <= now:
-                # Bereits abgelaufen während Bot offline war → sofort beenden
                 await end_giveaway(mid)
             else:
                 restored += 1
