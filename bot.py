@@ -596,13 +596,24 @@ class TicketPanelView(discord.ui.View):
         self.add_item(TicketKategorieSelect())
 
 
+ticket_panel_message_id: int | None = None
+
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def ticketpanel(ctx):
+    global ticket_panel_message_id
     try:
         await ctx.message.delete()
     except discord.Forbidden:
         pass
+
+    # Altes Panel löschen falls vorhanden
+    if ticket_panel_message_id:
+        try:
+            old_msg = await ctx.channel.fetch_message(ticket_panel_message_id)
+            await old_msg.delete()
+        except (discord.NotFound, discord.Forbidden):
+            pass
 
     embed = discord.Embed(
         title="🎫 Support-Tickets",
@@ -616,7 +627,8 @@ async def ticketpanel(ctx):
         ),
         color=discord.Color.blue()
     )
-    await ctx.send(embed=embed, view=TicketPanelView())
+    msg = await ctx.send(embed=embed, view=TicketPanelView())
+    ticket_panel_message_id = msg.id
 
 
 # ─── Twitch Live Benachrichtigung ────────────────────────────────────────────
