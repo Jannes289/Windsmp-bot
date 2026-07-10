@@ -458,9 +458,6 @@ async def giveaway_remove(interaction: discord.Interaction, nachricht_id: str, u
 open_tickets = {}
 
 TICKET_KATEGORIEN = {
-    "bewerbung": {"label": "📝 Bewerbung", "emoji": "📝", "farbe": discord.Color.green(),
-                  "beschreibung": "Bewirb dich hier für eine Rolle auf dem WindSMP Server!",
-                  "hinweis": "Bitte beschreibe warum du Teil des Teams werden möchtest."},
     "discord_mod": {"label": "🛡️ Discord Mod", "emoji": "🛡️", "farbe": discord.Color.blurple(),
                   "beschreibung": "Bewirb dich als Discord Moderator!",
                   "hinweis": "Bitte beantworte folgendes:\n• Wie alt bist du?\n• Wie aktiv bist du auf dem Discord Server?\n• Warum möchtest du Discord Moderator werden?\n• Hast du Erfahrung als Moderator?\n• Wie viele Stunden pro Woche kannst du aktiv sein?"},
@@ -574,7 +571,6 @@ class TicketCloseView(discord.ui.View):
 class TicketKategorieSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="📝 Bewerbung", value="bewerbung", description="Bewirb dich für eine Rolle auf WindSMP", emoji="📝"),
             discord.SelectOption(label="🛡️ Discord Mod", value="discord_mod", description="Bewirb dich als Discord Moderator", emoji="🛡️"),
             discord.SelectOption(label="🎮 Twitch Mod", value="twitch_mod", description="Bewirb dich als Twitch Moderator", emoji="🎮"),
             discord.SelectOption(label="🐛 Bug melden", value="bug", description="Einen Fehler oder Bug melden", emoji="🐛"),
@@ -608,7 +604,6 @@ async def ticketpanel(ctx):
         title="🎫 Support-Tickets",
         description=(
             "Brauchst du Hilfe oder möchtest dich bewerben?\n\n"
-            "📝 **Bewerbung** — Bewirb dich für eine Rolle auf WindSMP\n"
             "🛡️ **Discord Mod** — Bewirb dich als Discord Moderator\n"
             "🎮 **Twitch Mod** — Bewirb dich als Twitch Moderator\n"
             "🐛 **Bug melden** — Fehler & Bugs melden\n\n"
